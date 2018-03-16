@@ -23,18 +23,18 @@ def digit_recognition():
 	This method will train the neural network and then test it on the test sample.
 	"""
 	
-	train_fn = "train-images-idx3-ubyte"
-	train_target_fn = "train-labels-idx1-ubyte"
+	train_fn = "..\\train-images-idx3-ubyte"
+	train_target_fn = "..\\train-labels-idx1-ubyte"
 	
-	test_fn = "t10k-images-idx3-ubyte"
-	test_target_fn = "t10k-labels-idx1-ubyte"
+	test_fn = "..\\t10k-images-idx3-ubyte"
+	test_target_fn = "..\\t10k-labels-idx1-ubyte"
 	
 	#read the images
 	train = ri.read_images(train_fn)
 	# scale down the digits read because with lots of hidden nodes the output of the function is 1 (due to sigmoid function)
 	# and when output is 1, this throws off the neural network
 	for i in range (0, train.__len__()):
-		for j in range (0, train[i].__len__()):
+		for j in range (1, train[i].__len__()):
 			train[i][j] = train[i][j] / 1000
 	
 	#read the target labels
@@ -45,13 +45,13 @@ def digit_recognition():
 	
 	learning_rate = 0.3
 	momentum = 0.3
-	n_in = train[0].__len__()
-	n_hidden = 100 		# for this dataset good results (less than 5% error) start at 300 hidden nodes and more
+	n_in = train[0].__len__() - 1
+	n_hidden = 300 		# for this dataset good results (less than 5% error) start at 300 hidden nodes and more
 	n_out = 10
 	
 	dr_nn = nn.neural_network(learning_rate, momentum, n_in, n_hidden, n_out)
 	
-	total_iterations = 10
+	total_iterations = 200
 	
 	for i in range (0, total_iterations):
 		start = time.time()

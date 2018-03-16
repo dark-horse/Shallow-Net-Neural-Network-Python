@@ -1,6 +1,7 @@
 import sys
 import os
 import struct
+import numpy as np
 
 def read_images(fn):
 	"""
@@ -34,11 +35,12 @@ def read_images(fn):
 	# each image consists of exactly col_count x row_count pixels.
 	# each pixel is exactly 1 byte.
 	
-	img_vector =[[0.0 for x in range(0, col_count * row_count)] for y in range (0, img_count)]
+	img_vector = np.empty((img_count, col_count * row_count+1), dtype=np.float64)
 	for i in range (0, img_count):
+		img_vector[i,0] = 1.0
 		for j in range (0, col_count * row_count):
 			tmp = f.read(1)
-			img_vector[i][j] = float(struct.unpack("B", tmp)[0])
+			img_vector[i,j+1] = float(struct.unpack("B", tmp)[0])
 
 	f.close()
 	return img_vector

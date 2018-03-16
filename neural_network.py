@@ -21,10 +21,11 @@ class neural_network (object):
 		#First layer weights  initialized to 0.
 		#Second layer weights are initialized to small random numbers. np.random.random_sample returns floats between -1 and 1
 		#Prior deltas initialized to 0
-		self.first_layer_weights  = [[float(0) for x in range (0, n_in+1)] for y in range (0, n_hidden)]
+		self.first_layer_weights  = np.zeros((n_hidden, n_in+1),dtype=np.float64)
 		self.second_layer_weights = np.random.random_sample((n_out,n_hidden))
-		self.prior_descent_first_layer_weights_deltas  = [[float(0) for x in range (0, n_in+1)] for y in range (0, n_hidden)]
-		self.prior_descent_second_layer_weights_deltas = [[float(0) for x in range (0, n_hidden)] for y in range (0, n_out)]
+
+		self.prior_descent_first_layer_weights_deltas  = np.zeros((n_hidden,n_in+1),dtype=np.float64)
+		self.prior_descent_second_layer_weights_deltas = np.zeros((n_out,n_hidden),dtype=np.float64)	
 		
 		# scaling factor for sigmoid
 		# sigmoid function very quickly (at around 30) becomes equal to 1. If the output of the neural
@@ -36,52 +37,68 @@ class neural_network (object):
 		# because we adjust the parameter passed to the sigmoid function we also have to adjust the Jacobian derivatives
 		# in the back propagation step.
 		self.adjust_for_sigmoid = (n_hidden / 30) + 1
-
+		
+		# some array we will use over and over
+		# allocate these at the beginning so we don't allocate on every back propagation
+		# (we will be doing hundreds of back propagations)
+		self.delta_output_weights = np.zeros((self.n_out,self.n_hidden),dtype=np.float64)
+		self.delta_hidden_weights = np.zeros((self.n_hidden,self.n_in+1),dtype=np.float64)
+		self.hidden_units = np.zeros(self.n_hidden,dtype=np.float64)
+		self.output_units = np.zeros(self.n_out,dtype=np.float64)
+		self.output_errors = np.zeros(self.n_out,dtype=np.float64)
+		self.hidden_errors = np.zeros(self.n_hidden,dtype=np.float64)
+		
+		# some intermediary results arrays
+		self.output_errors_intermediate = np.zeros(self.n_out,dtype=np.float64)
+		self.hidden_errors_intermediate = np.zeros(self.n_hidden,dtype=np.float64)
+		
 		return
 	
 	def sigmoid(self, x):
-		#return x
-		return 1 / ( 1 + np.exp(-x))
+		# x is a numpy array.
+		# it would be great if there would be a version of numpy for vectorize / apply_along_axis 
+		# 		which would do the calculation in place (instead of returning a new vector)
+		# 		however, we can use Numpy primitives to calculate this in place ourselves
 		
+		#
+		# the formula we want to get is 1 / ( 1 + np.exp(-x))
+		#
+		
+		np.exp(-x, x)
+		np.add(1, x, x)
+		np.divide(1,x,x)
+		
+		# DONE. Now the input array is changed in place
 
-	
 	def compute_output(self, x_input):
 		"""
 		This method calculates the output of the neural network from the x_input.
 		Sometimes this function is  called feed_forward
-		We assume x_input is an array with dimension n_in.
+		We assume x_input is an array with dimension n_in+1 and the first parameter is 1 (this corresponds to the bias weight)
 		This will output an array of dimension n_out.
 		The activation function for each layer is the sigmoid function - as per Mitchell.
 		Other books (Bishop) use different activation functions for different layers.
 		"""
 		
-		if (x_input.__len__() != self.n_in):
+		if (x_input.shape[0] != self.n_in+1):
 			raise ValueError ("wrong number of inputs")
+
+		if ( abs(x_input[0] - 1.0) > 0.0000000001):
+			raise ValueError ("the first parameter in the input should be 1 (the first weight is the bias weight)")
 		
 		#
 		# calculate the intermediary (hidden) step
 		#
-		hidden_units = [float for i in range (0, self.n_hidden)]
-		for i in range (0, self.n_hidden):
-			#the first of first_layer_weights is the weight corresponding to the threshhold - the additional constant x0 = 1
-			#input is x1, x2, x3, ..., x_n_in
-			s = self.first_layer_weights[i][0]
-			for j in range (1, self.n_in+1):
-				s += self.first_layer_weights[i][j] * x_input[j-1]
-			s = s / self.adjust_for_sigmoid
-			hidden_units [i] = self.sigmoid(s)
+		np.matmul(self.first_layer_weights, x_input, self.hidden_units)
+		self.hidden_units.dot(1.0/self.adjust_for_sigmoid, self.hidden_units)
+		self.sigmoid(self.hidden_units)
 		
 		#
 		# calculate the outputs
 		#
-		output_units = [float for i in range (0, self.n_out)]
-		for i in range (0, self.n_out):
-			s = 0.0
-			for j in range (0, self.n_hidden):
-				s += self.second_layer_weights[i][j] * hidden_units[j]
-			# adjust the parameter passed to the sigmoid function
-			s = s / self.adjust_for_sigmoid
-			output_units[i] = self.sigmoid(s)
+		output_units = np.matmul(self.second_layer_weights, self.hidden_units);
+		output_units.dot(1.0/self.adjust_for_sigmoid, output_units)
+		self.sigmoid(output_units)
 		
 		return output_units
 	
@@ -100,10 +117,10 @@ class neural_network (object):
 		#
 		# 1. For each input in training example do
 		#  1.1 Compute the output: O(n_out)
-		#  1.2 For each output unit calculate its error term: Delta(n_out) = O(n_out) * (1 - O(n_out) * (Train1 - O(n_out))
-		#  1.3 For each hidden unit calculat its error term: Delta (n_hidden) = O(n_out) * (1 - O(n_out)) * (SUM (output_weights * Delta (n_out)
-		#  1.4 For each output weight calculate: delta_weight (n_out) = learning_rate * Delta(n_out) * output_units (n_out)
-		#  1.5 For each hidden weight calculate: delta_weight (n_hidden) = learning_rate * Delta(n_hidden) * hidden_units (n_hidden) + momentum * prior_delta_weight(n_hidden)
+		#  1.2 For each output unit calculate its error term: Delta(n_out) = O(n_out) * (1 - O(n_out)) * (Train1 - O(n_out))
+		#  1.3 For each hidden unit calculat its error term: Delta (n_hidden) = O(n_hidden) * (1 - O(n_hidden)) * (SUM (output_weights * Delta (n_out))
+		#  1.4 For each output weight calculate: delta_weight (n_out) = learning_rate * Delta(n_out) * hidden_units ()
+		#  1.5 For each hidden weight calculate: delta_weight (n_hidden) = learning_rate * Delta(n_hidden) * input () + momentum * prior_delta_weight(n_hidden)
 		# 2. Update each weight in the network 
 		#  2.1 Update each hidden weight in the network: weight(n_hidden) = weight(n_hidden) + delta_weight(n_hidden)
 		#  2.2 Update each prior_delta_weight to the current delta_weight (n_hidden)
@@ -111,71 +128,56 @@ class neural_network (object):
 		#  2.4 Update each prior_delta_weight to current delta_weight (n_out)
 		#
 
-		delta_output_weights = [[float(0) for x in range (0, self.n_hidden)] for y in range (0, self.n_out)]
-		delta_hidden_weights = [[float(0) for x in range (0, self.n_in+1)] for y in range (0, self.n_hidden)]
-		hidden_units = [float for i in range (0, self.n_hidden)]
-		output_units = [float for i in range (0, self.n_out)]
-		output_errors = [float for i in range (0, self.n_out)]
-		hidden_errors = [float for i in range (0, self.n_hidden)]
 
 		# 1. For each input in training example do
 		for current_input_step in range (0, x_input.__len__()):
-			#  1.1 Compute the output: O(n_out)
 			input = x_input[current_input_step]
-			if (input.__len__() != self.n_in):
-				raise ValueError ("input vector not the same size as the neural network")
-			
+
+			if (input.shape[0] != self.n_in+1):
+				raise ValueError ("input vector not the same size as the neural network. Expected {} and got {}".format(self.n_in_1, input.shape[0]))
+			if (abs(input[0]-1.0)> 0.0000000001):
+				raise ValueError ("Expected 1 for the first parameter in the input (the first weight is the bias weight). Got {} for step {}".format(input[0],current_input_step))
+
+			#  1.1 Compute the output: O(n_out)
 			#calculate the hidden (intermediary) units
-			for i in range (0, self.n_hidden):
-				#the first of first_layer_weights is the weight corresponding to the threshhold - the additional constant x0 = 1
-				#input is x1, x2, x3, ..., x_n_in
-				s = self.first_layer_weights[i][0]
-				for j in range (1, self.n_in+1):
-					s += self.first_layer_weights[i][j] * input[j-1]
-				
-				# adjust the parameter passed to the sigmoid function
-				s = s / self.adjust_for_sigmoid
-				hidden_units[i] = self.sigmoid(s)
+			np.matmul(self.first_layer_weights, input, self.hidden_units)
+			self.hidden_units.dot(1.0/self.adjust_for_sigmoid, self.hidden_units)
+			self.sigmoid(self.hidden_units)
 			
 			# calculate the output units
-			for i in range (0, self.n_out):
-				s = 0.0
-				for j in range (0, self.n_hidden):
-					s += self.second_layer_weights[i][j] * hidden_units[j]
-				# adjust the parameter passed to the sigmoid function
-				s = s / self.adjust_for_sigmoid
-				output_units[i] = self.sigmoid(s)
+			np.matmul(self.second_layer_weights,self.hidden_units,self.output_units)
+			self.output_units.dot(1.0/self.adjust_for_sigmoid, self.output_units)
+			self.sigmoid(self.output_units)
 		
-			#  1.2 For each output unit calculate its error term: Delta(n_out) = O(n_out) * (1 - O(n_out) * (Train1 - O(n_out))
-			for i in range (0, self.n_out):
-				output_errors[i] = output_units[i] * (1-output_units[i])*(train[current_input_step][i]-output_units[i])
-				#adjust the jacobian derivative for the scaling factor in the sigmoid function
-				output_errors[i] = output_errors[i] / self.adjust_for_sigmoid
+			#  1.2 For each output unit calculate its error term: Delta(n_out) = O(n_out) * (1 - O(n_out)) * (Train1 - O(n_out))
+			np.subtract(1, self.output_units, self.output_errors)
+			np.multiply(self.output_errors, self.output_units, self.output_errors)
+			np.subtract(train[current_input_step], self.output_units, self.output_errors_intermediate)
+			np.multiply(self.output_errors, self.output_errors_intermediate, self.output_errors)
+			#adjust the jacobian derivative for the scaling factor in the sigmoid function
+			self.output_errors.dot(1.0/self.adjust_for_sigmoid, self.output_errors)
 			
 			#  1.3 For each hidden unit calculate its error term: Delta (n_hidden) = O(n_hidden) * (1 - O(n_hidden)) * (SUM (output_weights * Delta (n_out))
-			for i in range (0, self.n_hidden):
-				sum = 0.0
-				for j in range (0,self.n_out):
-					sum += self.second_layer_weights[j][i] * output_errors[j]
-				hidden_errors[i] = hidden_units[i] * (1-hidden_units[i]) * sum
-				#adjust the jacobian derivative for the scaling factor in the sigmoid function
-				hidden_errors[i] = hidden_errors[i] / self.adjust_for_sigmoid
+			#  we want to use numpy, and avoid allocating a new array.
+			np.subtract(1, self.hidden_units, self.hidden_errors)
+			np.multiply(self.hidden_units, self.hidden_errors, self.hidden_errors)
+			np.matmul(self.output_errors, self.second_layer_weights, self.hidden_errors_intermediate)
+			np.multiply(self.hidden_errors_intermediate, self.hidden_errors, self.hidden_errors)
+			#adjust the jacobian derivative for the scaling factor in the sigmoid function
+			self.hidden_errors.dot(1.0/self.adjust_for_sigmoid, self.hidden_errors)
+
+			#  1.4 For each output weight calculate: delta_weight (n_out) = learning_rate * Delta(n_out) * hidden_units () + momentum * prior_delta_weight(n_out)
+			np.outer(self.output_errors, self.hidden_units, self.delta_output_weights)
+			self.delta_output_weights.dot(self.learning_rate, self.delta_output_weights)
+			self.prior_descent_second_layer_weights_deltas.dot(self.momentum, self.prior_descent_second_layer_weights_deltas)
+			np.add(self.delta_output_weights, self.prior_descent_second_layer_weights_deltas, self.delta_output_weights)
 			
-			#  1.4 For each output weight calculate: delta_weight (n_out) = learning_rate * Delta(n_out) * output_units (n_out) + momentum * prior_delta_weight(n_out)
-			for i in range (0, self.n_out):
-				for j in range (0,self.n_hidden):
-					delta_output_weights[i][j] = self.learning_rate * output_errors[i]  * hidden_units[j] + self.momentum * self.prior_descent_second_layer_weights_deltas[i][j]
+			#  1.5 For each hidden weight calculate: delta_weight (n_hidden) = learning_rate * Delta(n_hidden) * input () + momentum * prior_delta_weight(n_hidden)
+			np.outer(self.hidden_errors, input, self.delta_hidden_weights)
+			self.delta_hidden_weights.dot(self.learning_rate, self.delta_hidden_weights)
+			self.prior_descent_first_layer_weights_deltas.dot(self.momentum, self.prior_descent_first_layer_weights_deltas)
+			np.add(self.delta_hidden_weights, self.prior_descent_first_layer_weights_deltas, self.delta_hidden_weights)
 					
-			
-			#  1.5 For each hidden weight calculate: delta_weight (n_hidden) = learning_rate * Delta(n_hidden) * hidden_units (n_hidden) + momentum * prior_delta_weight(n_hidden)
-			for i in range (0, self.n_hidden):
-				#the first of first_layer_weights is the weight corresponding to the threshhold - the additional constant x0 = 1
-				#input is x1, x2, x3, ..., x_n_in
-				delta_hidden_weights[i][0] = self.learning_rate * hidden_errors[i] * 1 + self.momentum * self.prior_descent_first_layer_weights_deltas[i][0]
-				
-				for j in range (1, self.n_in+1):
-					delta_hidden_weights[i][j] = self.learning_rate * hidden_errors[i] * input[j-1] + self.momentum * self.prior_descent_first_layer_weights_deltas[i][j]
-			
 			#
 			# steps 1.1 - 1.5 use 7 loops. This can probably be done in 2 loops.
 			# Think about that.....
@@ -185,17 +187,13 @@ class neural_network (object):
 			
 			#  2.1 Update each hidden weight in the network: weight(n_hidden) = weight(n_hidden) + delta_weight(n_hidden)
 			#  2.2 Update each prior_delta_weight to the current delta_weight (n_hidden)
-			for i in range (0, self.n_hidden):
-				for j in range (0, self.n_in+1):
-					self.first_layer_weights[i][j] += delta_hidden_weights[i][j]
-					self.prior_descent_first_layer_weights_deltas[i][j] = delta_hidden_weights[i][j]
+			np.add(self.first_layer_weights, self.delta_hidden_weights, self.first_layer_weights)
+			np.copyto(self.prior_descent_first_layer_weights_deltas, self.delta_hidden_weights)
 			
 			#  2.3 Update each output weight in the network: weight (n_out) = weight(n_out) + delta_weight (n_out)
 			#  2.4 Update each prior_delta_weight to current delta_weight (n_out)
-			for i in range (0, self.n_out):
-				for j in range (0, self.n_hidden):
-					self.second_layer_weights[i][j] += delta_output_weights[i][j]
-					self.prior_descent_second_layer_weights_deltas[i][j] = delta_output_weights[i][j]
+			np.add(self.second_layer_weights, self.delta_output_weights, self.second_layer_weights)
+			np.copyto(self.prior_descent_second_layer_weights_deltas, self.delta_output_weights)
 		
 		return
 	
@@ -225,8 +223,9 @@ class neural_network (object):
 			for j in range (0,self.n_hidden):
 				fake_second [i][j] = 0.01 * (i + 1) + 0.01 * (j+1)
 
-		self.first_layer_weights = fake_first
-		self.second_layer_weights = fake_second
+		self.first_layer_weights = np.add(self.first_layer_weights, fake_first)
+		self.second_layer_weights = np.zeros((self.n_out,self.n_hidden))
+		self.second_layer_weights = np.add(self.second_layer_weights, fake_second)
 		
 		return fake_first, fake_second
 		
